@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qr-txrx"
+version = "0.1.0"
+description = "Experimental screen-to-camera optical data transfer using QR and HCC2D codecs."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+
+dependencies = [
+    "numpy",
+    "opencv-python",
+    "Pillow",
+    "qrcode",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
