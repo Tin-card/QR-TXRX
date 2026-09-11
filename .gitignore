@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Packaging
+build/
+dist/
+*.egg-info/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Type checking / tooling
+.mypy_cache/
+.ruff_cache/
+
+# IDEs
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# Experiment outputs
+experiments/results/*
+!experiments/results/.gitkeep
+
+# Generated files
+*.png
+*.jpg
+*.jpeg
+*.mp4
+*.avi
+*.log
+
+# Temporary files
+*.tmp
+*.bak
