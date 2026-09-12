@@ -3,39 +3,37 @@
 
 **QR TXRX** is an experimental screen-to-camera optical data transfer system. It combines packetized file transfer, QR visual encoding, CRC-based integrity, and fountain-coded erasure recovery.
 
-The architecture separates the **visual codec** from the **transport/FEC layer**, allowing different 2D visual codecs to be evaluated without changing the communication stack.
+The implementation is structured so that the **visual codec**, **transport**, **FEC**, and **channel model** are independent components. This allows the same transport stack to be evaluated with different visual encodings and channel conditions.
 
 ## Architecture
 
 ```text
-File
- │
- ▼
-Packetization
- │
- ├───────────────┐
- ▼               ▼
-Sequential     Fountain
-Transport        FEC
- │               │
- └───────┬───────┘
-         ▼
-     QR Codec
-         │
-         ▼
- Display / Channel
-         │
-         ▼
-      Receiver
-         │
-         ▼
- File Reconstruction
-         │
-         ▼
-    SHA-256 Verify
+                        ┌───────────────┐
+                        │     File      │
+                        └───────┬───────┘
+                                │
+                         Packetization
+                                │
+                  ┌─────────────┴─────────────┐
+                  │                           │
+           Sequential Transport        Fountain Coding
+                  │                           │
+                  └─────────────┬─────────────┘
+                                │
+                           QR Codec
+                                │
+                         Display / Channel
+                                │
+                           QR Decoder
+                                │
+                       Packet / FEC Recovery
+                                │
+                         File Reconstruction
+                                │
+                           SHA-256 Check
 ```
 
-### Repository Structure
+## Repository Structure
 
 ```text
 qr-txrx/
@@ -64,67 +62,41 @@ qr-txrx/
     └── channel/
 ```
 
-## Implementation
+## Protocol
 
-### 1. Packet Format
+### Packet
 
-Binary packets use the following wire format:
-
-```text
-4 B   Magic          QTX1
-1 B   Version
-4 B   Session ID
-4 B   Sequence Number
-2 B   Payload Length
-N B   Payload
-4 B   CRC32
-```
-
-CRC32 covers the header and payload. Packets are rejected if their magic, version, length, or CRC is invalid.
-
-### 2. File Packetization
-
-Files are split into sequential **512-byte blocks** by default.
+Packets use a fixed header followed by a variable-length payload and CRC32:
 
 ```text
-File → Packet 0 → Packet 1 → Packet 2 → ...
+Offset   Size       Field
+────────────────────────────────
+0        4          Magic ("QTX1")
+4        1          Version
+5        4          Session ID
+9        4          Sequence Number
+13       2          Payload Length
+15       N          Payload
+15+N     4          CRC32
 ```
 
-The receiver verifies session consistency, rejects duplicate packets, checks sequence completeness, and reassembles the original byte stream.
+CRC32 covers the header and payload. Decoding validates the magic, version, packet length, and checksum.
 
-### 3. QR Codec
+Files are packetized into **512-byte payload blocks** by default.
 
-The current codec uses:
+### Sequential Transport
 
-- `qrcode` for encoding
-- `pyzbar` / ZBar for decoding
-- Base64 for binary-safe QR payload representation
-
-```text
-Binary Packet
-     ↓
-   Base64
-     ↓
-  QR Image
-```
-
-Base64 is currently a baseline representation and introduces approximately 33% data expansion.
-
-### 4. Sequential Transport
-
-The baseline transport sends packets in order:
+The baseline transport transmits packets in sequence:
 
 ```text
 P0 → P1 → P2 → P3 → ...
 ```
 
-Loss of a required packet prevents complete sequential reconstruction.
+The receiver stores packets by sequence number and requires a complete sequence for reconstruction.
 
-### 5. Fountain Coding
+### Fountain Transport
 
-The project implements a simple **XOR fountain code**.
-
-A droplet is generated as the XOR of selected source blocks:
+The FEC implementation uses XOR-coded droplets over fixed-size source blocks.
 
 ```text
 D0 = S0
@@ -133,61 +105,77 @@ D2 = S1 ⊕ S2
 D3 = S0 ⊕ S2 ⊕ S3
 ```
 
-The decoder uses **GF(2) Gaussian elimination** to reconstruct the source blocks from received droplets.
+The decoder solves the resulting GF(2) system using Gaussian elimination, allowing reconstruction without receiving every original source block.
 
-The current degree distribution is a simple experimental distribution, not a production LT/Raptor implementation.
+The current degree distribution is intentionally simple and experimental. It is not an implementation of a standardized LT or Raptor code.
 
-### 6. Droplet Format
+### Droplet Format
 
 ```text
 4 B       Generation ID
 4 B       Droplet ID
 4 B       Seed
 1 B       Degree
-4 B × D   Source Block Indices
+4 B × D   Source block indices
 N B       Payload
 ```
 
-The droplet layer validates degree, truncation, payload size, and duplicate indices. `FountainDecoder` additionally validates source-block indices.
+Droplet serialization is handled separately from the fountain encoder/decoder.
 
-### 7. Synthetic Channel
+## QR Codec
 
-Frame loss can be simulated using a configurable erasure channel:
+The current visual layer uses:
+
+- `qrcode` for QR generation
+- `pyzbar` / ZBar for decoding
+- Base64 for binary-safe QR payloads
 
 ```text
-loss_rate = 0.0   → no loss
-loss_rate = 0.2   → 20% loss
-loss_rate = 1.0   → complete loss
+Binary Payload
+      │
+    Base64
+      │
+   QR Frame
 ```
 
-A random seed allows reproducible experiments.
+Base64 provides a simple binary-safe baseline at the cost of approximately 33% payload expansion.
 
-### 8. Integrity
+The codec is isolated from the transport layer so that alternative 2D encodings can be introduced without changing the underlying protocol.
 
-Two levels of integrity checking are used:
+## Channel Model
 
-- **CRC32** → individual packet validation
-- **SHA-256** → final reconstructed-file verification
+A synthetic erasure channel is currently used to evaluate frame loss before introducing a physical camera channel.
 
-## Testing
+```python
+ErasureChannel(
+    loss_rate=0.20,
+    seed=42,
+)
+```
 
-The implementation currently has **43 passing tests** covering:
+The model supports deterministic experiments through seeded random loss.
 
-- Packet serialization and validation
-- File packetization/reassembly
-- QR encoding/decoding
-- Sequential transport
-- Fountain encoding/decoding
-- Droplet serialization
-- Erasure-channel behavior
-- QR + sequential integration
-- QR + fountain integration
-- End-to-end SHA-256 verification
+## Integrity
 
-Run:
+Integrity is checked at two levels:
+
+| Layer | Mechanism | Purpose |
+|---|---|---|
+| Packet | CRC32 | Detect corrupted packets |
+| File | SHA-256 | Verify reconstructed file |
+
+## Tests
+
+The current test suite contains **43 tests** covering packet handling, file transfer, QR encoding/decoding, sequential transport, fountain coding, droplet serialization, erasure channels, and end-to-end QR/FEC transfer.
 
 ```bash
 pytest -q
+```
+
+Current status:
+
+```text
+43 passed
 ```
 
 ## Installation
@@ -203,9 +191,10 @@ pip install -e ".[dev]"
 pytest -q
 ```
 
-## Current Next Step
+## Next Step
 
-The next major step is to move from the synthetic QR/erasure pipeline toward the **physical display → camera channel**, followed by evaluation of a higher-density 2D codec such as HCC2D.
+The next implementation stage is the **physical display-to-camera channel**, followed by integration and benchmarking of a higher-density 2D codec.
+
 
 ## Repository
 
