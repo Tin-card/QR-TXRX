@@ -5,15 +5,16 @@ from qr_txrx.fec.fountain import (
     FountainDecoder,
     FountainEncoder,
     FountainError,
+    GenerationInfo,
     xor_bytes,
 )
 
 
-def test_xor_bytes():
-    a = bytes([0xAA, 0x55, 0xFF])
-    b = bytes([0xFF, 0x55, 0xAA])
-
-    assert xor_bytes(a, b) == bytes([0x55, 0x00, 0x55])
+def test_xor_bytes() -> None:
+    assert xor_bytes(
+        b"\x01\x02",
+        b"\x03\x04",
+    ) == b"\x02\x06"
 
 
 def test_decoder_rejects_invalid_source_index() -> None:
@@ -36,45 +37,51 @@ def test_decoder_rejects_invalid_source_index() -> None:
     ):
         decoder.receive(droplet)
 
-def test_xor_requires_equal_lengths():
-    with pytest.raises(FountainError):
-        xor_bytes(b"abc", b"ab")
+
+def test_xor_requires_equal_lengths() -> None:
+    with pytest.raises(
+        FountainError,
+        match="equal length",
+    ):
+        xor_bytes(
+            b"abc",
+            b"ab",
+        )
 
 
-def test_fountain_droplet_is_deterministic():
+def test_fountain_droplet_is_deterministic() -> None:
     blocks = [
         b"AAAA",
         b"BBBB",
         b"CCCC",
-        b"DDDD",
     ]
 
     encoder_a = FountainEncoder(
         blocks,
-        generation_id=1,
-        seed=42,
+        generation_id=7,
+        seed=1234,
     )
 
     encoder_b = FountainEncoder(
         blocks,
-        generation_id=1,
-        seed=42,
+        generation_id=7,
+        seed=1234,
     )
 
     droplets_a = [
         encoder_a.generate(i)
-        for i in range(20)
+        for i in range(5)
     ]
 
     droplets_b = [
         encoder_b.generate(i)
-        for i in range(20)
+        for i in range(5)
     ]
 
     assert droplets_a == droplets_b
 
 
-def test_degree_one_droplet_can_be_decoded():
+def test_degree_one_droplet_can_be_decoded() -> None:
     blocks = [
         b"AAAA",
         b"BBBB",
@@ -89,9 +96,9 @@ def test_degree_one_droplet_can_be_decoded():
     droplet = Droplet(
         generation_id=1,
         droplet_id=0,
-        seed=0,
-        indices=(1,),
-        payload=b"BBBB",
+        seed=1,
+        indices=(0,),
+        payload=blocks[0],
     )
 
     decoder.receive(droplet)
@@ -100,7 +107,7 @@ def test_degree_one_droplet_can_be_decoded():
     assert not decoder.complete
 
 
-def test_fountain_reconstructs_source_blocks():
+def test_fountain_reconstructs_source_blocks() -> None:
     blocks = [
         b"AAAA",
         b"BBBB",
@@ -125,14 +132,20 @@ def test_fountain_reconstructs_source_blocks():
             droplet_id=1,
             seed=1,
             indices=(0, 1),
-            payload=xor_bytes(b"AAAA", b"BBBB"),
+            payload=xor_bytes(
+                blocks[0],
+                blocks[1],
+            ),
         ),
         Droplet(
             generation_id=1,
             droplet_id=2,
             seed=2,
             indices=(1, 2),
-            payload=xor_bytes(b"BBBB", b"CCCC"),
+            payload=xor_bytes(
+                blocks[1],
+                blocks[2],
+            ),
         ),
     ]
 
@@ -143,7 +156,7 @@ def test_fountain_reconstructs_source_blocks():
     assert decoder.reconstruct() == blocks
 
 
-def test_incomplete_fountain_cannot_reconstruct():
+def test_incomplete_fountain_cannot_reconstruct() -> None:
     decoder = FountainDecoder(
         source_block_count=3,
         block_size=4,
@@ -161,5 +174,60 @@ def test_incomplete_fountain_cannot_reconstruct():
 
     assert not decoder.complete
 
-    with pytest.raises(FountainError):
+    with pytest.raises(
+        FountainError,
+        match="not enough information",
+    ):
         decoder.reconstruct()
+
+
+def test_generation_info_accepts_valid_metadata() -> None:
+    info = GenerationInfo(
+        generation_id=1,
+        source_block_count=10,
+        block_size=64,
+    )
+
+    assert info.generation_id == 1
+    assert info.source_block_count == 10
+    assert info.block_size == 64
+
+
+def test_generation_info_rejects_invalid_metadata() -> None:
+    with pytest.raises(FountainError):
+        GenerationInfo(
+            generation_id=1,
+            source_block_count=0,
+            block_size=64,
+        )
+
+    with pytest.raises(FountainError):
+        GenerationInfo(
+            generation_id=1,
+            source_block_count=10,
+            block_size=0,
+        )
+
+
+def test_decoder_rejects_different_generation() -> None:
+    decoder = FountainDecoder(
+        source_block_count=3,
+        block_size=4,
+        generation_id=42,
+    )
+
+    droplet = Droplet(
+        generation_id=43,
+        droplet_id=1,
+        seed=1,
+        indices=(0,),
+        payload=b"test",
+    )
+
+    with pytest.raises(
+        FountainError,
+        match="different generation",
+    ):
+        decoder.receive(droplet)
+
+

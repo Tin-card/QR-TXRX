@@ -9,6 +9,31 @@ class FountainError(ValueError):
 
 
 @dataclass(frozen=True)
+class GenerationInfo:
+    """Metadata required to decode a fountain generation."""
+
+    generation_id: int
+    source_block_count: int
+    block_size: int
+
+    def __post_init__(self) -> None:
+        if not 0 <= self.generation_id <= 0xFFFFFFFF:
+            raise FountainError(
+                "generation_id must fit in 32 bits"
+            )
+
+        if self.source_block_count <= 0:
+            raise FountainError(
+                "source_block_count must be greater than zero"
+            )
+
+        if self.block_size <= 0:
+            raise FountainError(
+                "block_size must be greater than zero"
+            )
+
+
+@dataclass(frozen=True)
 class Droplet:
     """One fountain-coded transmission unit."""
 
@@ -23,9 +48,14 @@ def xor_bytes(a: bytes, b: bytes) -> bytes:
     """XOR two equal-length byte strings."""
 
     if len(a) != len(b):
-        raise FountainError("XOR operands must have equal length")
+        raise FountainError(
+            "XOR operands must have equal length"
+        )
 
-    return bytes(x ^ y for x, y in zip(a, b))
+    return bytes(
+        x ^ y
+        for x, y in zip(a, b)
+    )
 
 
 class FountainEncoder:
@@ -38,14 +68,21 @@ class FountainEncoder:
         seed: int = 42,
     ) -> None:
         if not blocks:
-            raise FountainError("at least one source block is required")
+            raise FountainError(
+                "at least one source block is required"
+            )
 
         block_size = len(blocks[0])
 
         if block_size == 0:
-            raise FountainError("source blocks cannot be empty")
+            raise FountainError(
+                "source blocks cannot be empty"
+            )
 
-        if any(len(block) != block_size for block in blocks):
+        if any(
+            len(block) != block_size
+            for block in blocks
+        ):
             raise FountainError(
                 "all source blocks must have equal length"
             )
@@ -54,7 +91,10 @@ class FountainEncoder:
         self.generation_id = generation_id
         self._rng = random.Random(seed)
 
-    def generate(self, droplet_id: int) -> Droplet:
+    def generate(
+        self,
+        droplet_id: int,
+    ) -> Droplet:
         """Generate one deterministic fountain droplet."""
 
         seed = self._rng.randrange(0, 2**32)
@@ -75,7 +115,9 @@ class FountainEncoder:
             )
         )
 
-        payload = bytes(len(self.blocks[0]))
+        payload = bytes(
+            len(self.blocks[0])
+        )
 
         for index in indices:
             payload = xor_bytes(
@@ -122,6 +164,7 @@ class FountainDecoder:
         self,
         source_block_count: int,
         block_size: int,
+        generation_id: int | None = None,
     ) -> None:
         if source_block_count <= 0:
             raise FountainError(
@@ -133,13 +176,34 @@ class FountainDecoder:
                 "block_size must be greater than zero"
             )
 
+        if generation_id is not None and not (
+            0 <= generation_id <= 0xFFFFFFFF
+        ):
+            raise FountainError(
+                "generation_id must fit in 32 bits"
+            )
+
         self.source_block_count = source_block_count
         self.block_size = block_size
+        self.generation_id = generation_id
 
-        self._equations: list[tuple[int, bytes]] = []
+        self._equations: list[
+            tuple[int, bytes]
+        ] = []
 
-    def receive(self, droplet: Droplet) -> None:
+    def receive(
+        self,
+        droplet: Droplet,
+    ) -> None:
         """Accept one fountain droplet."""
+
+        if (
+            self.generation_id is not None
+            and droplet.generation_id != self.generation_id
+         ):
+            raise FountainError(
+                "droplet belongs to a different generation"
+             )
 
         if len(droplet.payload) != self.block_size:
             raise FountainError(
@@ -168,7 +232,7 @@ class FountainDecoder:
 
         self._equations.append(
             (mask, droplet.payload)
-        )
+        ) 
 
     def _solve(self) -> dict[int, bytes]:
         """Solve the received equations using GF(2) elimination."""
@@ -181,7 +245,11 @@ class FountainDecoder:
 
         pivot_row = 0
 
-        for column in range(self.source_block_count - 1, -1, -1):
+        for column in range(
+            self.source_block_count - 1,
+            -1,
+            -1,
+        ):
             bit = 1 << column
 
             candidate = None
@@ -202,9 +270,10 @@ class FountainDecoder:
                 rows[pivot_row],
             )
 
-            pivot_mask, pivot_payload = rows[pivot_row]
+            pivot_mask, pivot_payload = (
+                rows[pivot_row]
+            )
 
-            # Eliminate this variable from every other row.
             for row in range(len(rows)):
                 if row == pivot_row:
                     continue
@@ -224,7 +293,6 @@ class FountainDecoder:
 
         decoded: dict[int, bytes] = {}
 
-        # A fully reduced row has exactly one variable.
         for mask, payload in rows:
             if mask == 0:
                 continue
@@ -248,7 +316,10 @@ class FountainDecoder:
     def complete(self) -> bool:
         """Whether all source blocks can be reconstructed."""
 
-        return self.decoded_count == self.source_block_count
+        return (
+            self.decoded_count
+            == self.source_block_count
+        )
 
     def reconstruct(self) -> list[bytes]:
         """Reconstruct all source blocks."""

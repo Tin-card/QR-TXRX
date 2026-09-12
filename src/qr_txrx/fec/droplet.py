@@ -1,10 +1,35 @@
 from __future__ import annotations
 
-from qr_txrx.fec.fountain import Droplet, FountainError
+from qr_txrx.fec.fountain import (
+    Droplet,
+    FountainError,
+    GenerationInfo,
+)
 
-
+GENERATION_INFO_SIZE = 12
 HEADER_SIZE = 13
 
+def encode_generation_info(info: GenerationInfo) -> bytes:
+    """Serialize fountain generation metadata."""
+
+    return (
+        info.generation_id.to_bytes(4, "big")
+        + info.source_block_count.to_bytes(4, "big")
+        + info.block_size.to_bytes(4, "big")
+    )
+def decode_generation_info(data: bytes) -> GenerationInfo:
+    """Deserialize fountain generation metadata."""
+
+    if len(data) != GENERATION_INFO_SIZE:
+        raise FountainError(
+            "generation metadata has incorrect size"
+        )
+
+    return GenerationInfo(
+        generation_id=int.from_bytes(data[0:4], "big"),
+        source_block_count=int.from_bytes(data[4:8], "big"),
+        block_size=int.from_bytes(data[8:12], "big"),
+    )
 
 def encode_droplet(droplet: Droplet) -> bytes:
     """Serialize a fountain droplet."""

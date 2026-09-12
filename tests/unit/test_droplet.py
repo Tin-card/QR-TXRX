@@ -2,13 +2,14 @@ import pytest
 
 from qr_txrx.fec.droplet import (
     decode_droplet,
+    decode_generation_info,
     encode_droplet,
-)
+    encode_generation_info,)
 from qr_txrx.fec.fountain import (
     Droplet,
     FountainError,
+    GenerationInfo,
 )
-
 
 def test_droplet_roundtrip():
     droplet = Droplet(
@@ -117,3 +118,39 @@ def test_droplet_decode_rejects_wrong_payload_size():
             encoded,
             block_size=4,
         )
+
+def test_generation_info_roundtrip() -> None:
+    info = GenerationInfo(
+        generation_id=7,
+        source_block_count=88,
+        block_size=64,
+    )
+
+    encoded = encode_generation_info(info)
+    decoded = decode_generation_info(encoded)
+
+    assert decoded == info
+
+def test_decode_generation_info_rejects_wrong_size() -> None:
+    with pytest.raises(
+        FountainError,
+        match="incorrect size",
+    ):
+        decode_generation_info(b"\x00" * 11)
+
+    with pytest.raises(
+        FountainError,
+        match="incorrect size",
+    ):
+        decode_generation_info(b"\x00" * 13)
+
+def test_generation_info_has_fixed_wire_size() -> None:
+    info = GenerationInfo(
+        generation_id=1,
+        source_block_count=88,
+        block_size=64,
+    )
+
+    encoded = encode_generation_info(info)
+
+    assert len(encoded) == 12
