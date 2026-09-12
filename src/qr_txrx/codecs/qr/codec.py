@@ -1,10 +1,10 @@
-from base64 import b64decode, b64encode
-from io import BytesIO
+from __future__ import annotations
 
-import cv2
-import numpy as np
+import base64
+
 import qrcode
 from PIL import Image
+from pyzbar.pyzbar import decode
 
 
 class QRDecodeError(ValueError):
@@ -12,24 +12,26 @@ class QRDecodeError(ValueError):
 
 
 class QRCodec:
-    """Encode and decode binary payloads using QR codes."""
+    """Encode and decode arbitrary binary payloads using QR codes."""
 
     def __init__(
         self,
         box_size: int = 10,
         border: int = 4,
+        error_correction: int = qrcode.constants.ERROR_CORRECT_L,
     ) -> None:
         self.box_size = box_size
         self.border = border
+        self.error_correction = error_correction
 
     def encode(self, payload: bytes) -> Image.Image:
-        """Encode arbitrary bytes into a QR image."""
+        """Encode arbitrary binary data into a QR image."""
 
-        encoded = b64encode(payload).decode("ascii")
+        encoded = base64.b64encode(payload).decode("ascii")
 
         qr = qrcode.QRCode(
             version=None,
-            error_correction=qrcode.constants.ERROR_CORRECT_M,
+            error_correction=self.error_correction,
             box_size=self.box_size,
             border=self.border,
         )
@@ -43,20 +45,22 @@ class QRCodec:
         ).convert("RGB")
 
     def decode(self, image: Image.Image) -> bytes:
-        """Decode a QR image back into arbitrary bytes."""
+        """Decode a QR image into the original binary payload."""
 
-        image_array = np.array(image)
+        results = decode(image)
 
-        detector = cv2.QRCodeDetector()
+        for result in results:
+            if result.type != "QRCODE":
+                continue
 
-        data, _, _ = detector.detectAndDecode(image_array)
+            try:
+                return base64.b64decode(
+                    result.data,
+                    validate=True,
+                )
+            except (ValueError, UnicodeEncodeError) as exc:
+                raise QRDecodeError(
+                    "QR payload is not valid Base64"
+                ) from exc
 
-        if not data:
-            raise QRDecodeError("QR code could not be decoded")
-
-        try:
-            return b64decode(data.encode("ascii"), validate=True)
-        except Exception as exc:
-            raise QRDecodeError(
-                "QR payload is not valid Base64"
-            ) from exc
+        raise QRDecodeError("QR code could not be decoded")
