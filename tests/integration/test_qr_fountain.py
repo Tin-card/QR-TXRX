@@ -11,33 +11,10 @@ from qr_txrx.fec.fountain import (
 )
 from qr_txrx.utils.integrity import sha256
 
+from qr_txrx.application.file_transfer import (
+    split_into_blocks,
+)
 
-def split_into_blocks(
-    data: bytes,
-    block_size: int,
-) -> tuple[list[bytes], int]:
-    """Split data into fixed-size blocks and pad the final block."""
-
-    if block_size <= 0:
-        raise ValueError("block_size must be greater than zero")
-
-    original_size = len(data)
-
-    blocks = [
-        data[offset : offset + block_size]
-        for offset in range(0, len(data), block_size)
-    ]
-
-    if not blocks:
-        blocks = [bytes(block_size)]
-
-    if len(blocks[-1]) < block_size:
-        blocks[-1] = blocks[-1].ljust(
-            block_size,
-            b"\x00",
-        )
-
-    return blocks, original_size
 
 
 def test_qr_fountain_transfer_with_frame_loss():
@@ -49,9 +26,12 @@ def test_qr_fountain_transfer_with_frame_loss():
 
     block_size = 64
 
-    source_blocks, original_size = split_into_blocks(
-        original_data,
-        block_size,
+
+    original_size = len(original_data)
+
+    source_blocks = split_into_blocks(
+       original_data,
+       block_size,
     )
 
     encoder = FountainEncoder(

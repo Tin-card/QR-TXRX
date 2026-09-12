@@ -24,6 +24,31 @@ def packetize(
     ]
 
 
+def split_into_blocks(
+    data: bytes,
+    block_size: int,
+) -> list[bytes]:
+    """Split data into equal-sized blocks, padding the final block."""
+
+    if block_size <= 0:
+        raise ValueError("block_size must be greater than zero")
+
+    if not data:
+        return []
+
+    blocks = [
+        data[offset : offset + block_size]
+        for offset in range(0, len(data), block_size)
+    ]
+
+    if len(blocks[-1]) < block_size:
+        blocks[-1] = blocks[-1].ljust(
+            block_size,
+            b"\x00",
+        )
+
+    return blocks
+
 def reassemble(packets: list[Packet]) -> bytes:
     """Reconstruct the original data from sequential packets."""
 

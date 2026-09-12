@@ -3,6 +3,7 @@ import pytest
 from qr_txrx.application.file_transfer import (
     packetize,
     reassemble,
+    split_into_blocks,
 )
 
 
@@ -105,3 +106,17 @@ def test_mixed_sessions_fail():
 
     with pytest.raises(ValueError, match="different sessions"):
         reassemble(packets)
+
+def test_split_into_blocks_pads_final_block() -> None:
+    data = b"ABCDEFGHIJ"
+
+    blocks = split_into_blocks(
+        data,
+        block_size=4,
+    )
+
+    assert blocks == [
+        b"ABCD",
+        b"EFGH",
+        b"IJ\x00\x00",
+    ]
